@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 
 import ckanapi
 
@@ -13,12 +13,12 @@ GEOCODED_RESOURCE_NAME = 'geocoded-data'
 
 
 class GeocodeJobPlugin(p.SingletonPlugin):
-    p.implements(p.IPackageController)
+    p.implements(p.IPackageController, inherit=True)
 
     def after_create(self, context, pkg_dict):
         maybe_schedule(pkg_dict)
     
-    def after_update(self, contexxt, pkg_dict):
+    def after_update(self, context, pkg_dict):
         maybe_schedule(pkg_dict)
 
 
@@ -26,7 +26,7 @@ def maybe_schedule(pkg_dict):
     if pkg_dict.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
         return
 
-    p.schedule_job(geocode_dataset, [pkg_dict['id']])
+    p.toolkit.enqueue_job(geocode_dataset, [pkg_dict['id']])
 
 
 def geocode_dataset(pkg_id):
