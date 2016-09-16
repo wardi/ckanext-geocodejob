@@ -17,7 +17,7 @@ class GeocodeJobPlugin(p.SingletonPlugin):
 
     def after_create(self, context, pkg_dict):
         maybe_schedule(pkg_dict)
-    
+
     def after_update(self, context, pkg_dict):
         maybe_schedule(pkg_dict)
 
@@ -36,6 +36,10 @@ def geocode_dataset(pkg_id):
     lc = ckanapi.LocalCKAN()  # running as site user
     pkg_dict = lc.action.package_show(id=pkg_id)
     
+    # wait for the dataset to leave draft
+    if pkg_dict['state'] != 'active':
+        return
+
     # don't run again if we've already processed this one
     if pkg_dict.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
         return
