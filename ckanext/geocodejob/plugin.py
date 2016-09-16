@@ -55,6 +55,7 @@ def geocode_dataset(pkg_id):
         u'package_id': pkg_id,
         u'name': GEOCODED_RESOURCE_NAME,
         u'description': u'completed {0}'.format(datetime.utcnow()),
+        u'url': u'-',
     }
 
     for res in pkg_dict['resources']:
