@@ -1,0 +1,5 @@
+
+*.pyc
+ckanext_geocodejob.egg-info/*
+build/*
+dist/*
