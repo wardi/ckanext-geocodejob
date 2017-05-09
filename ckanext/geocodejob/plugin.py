@@ -5,6 +5,14 @@ import time
 import ckanapi
 import ckan.plugins as p
 
+try:
+    # CKAN 2.7 and later
+    from ckan.common import config
+except ImportError:
+    # CKAN 2.6 and earlier
+    from pylons import config
+
+
 TRIGGER_METADATA_FIELD = 'geocode_data'  # XXX change me to the new metadata field
 TRIGGER_METADATA_VALUE = 'geocode'
 TRIGGER_METADATA_STARTED = 'started'
@@ -13,10 +21,10 @@ TRIGGER_METADATA_RESOURCE = 'geocoded_resource_id'
 
 GEOCODED_RESOURCE_NAME_POSTFIX = ' (Geocoded Data)'
 
-MAPZEN_API_KEY = 'Replace-With-Mapzen-API-Key'
+MAPZEN_API_KEY = config.get('ckanext.geocodejob.mapzen_api_key', '')
 
-GEOCLIENT_API_ID = 'Replace-With-NYC-Geoclient-API-Id'
-GEOCLIENT_API_KEY = 'Replace-With-NYC-Geoclient-API-Key'
+GEOCLIENT_API_ID = config.get('ckanext.geocodejob.geoclient_api_id', '')
+GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
 
 
 class GeocodeJobPlugin(p.SingletonPlugin):
