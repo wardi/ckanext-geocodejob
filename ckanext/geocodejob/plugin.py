@@ -94,7 +94,7 @@ def geocode_dataset(res_id):
 
     # continue if the streetAddress field exists
     if valid_resource:
-        if res_dict.get('geocoder') == 'mapzen':
+        if res_dict.get('geocoder') == 'mapzen' or res_dict.get('geocoder') == 'openstreetmap':
             data_schema.append({ 'id' : 'latitude', 'type' : 'text' })
             data_schema.append({ 'id' : 'longitude', 'type' : 'text' })
 
@@ -151,6 +151,13 @@ def geocode_dataset(res_id):
                         current_record['longitude'] = response[0]
                         new_records.append(current_record)
 
+                if res_dict.get('geocoder') == 'openstreetmap':
+                    response = OPENSTREETMAP_streetAddress(row.get('streetAddress'))
+                    if len(response) == 2:
+                        current_record['latitude'] = response[1]
+                        current_record['longitude'] = response[0]
+                        new_records.append(current_record)
+
                 if res_dict.get('geocoder') == 'nyc_geoclient':
                     response = GEOCLIENT_streetAddress(row.get('streetAddress'))
 
@@ -168,7 +175,7 @@ def geocode_dataset(res_id):
                     current_record['electionDistrict'] = response.get('electionDistrict','')
                     new_records.append(current_record)
 
-                time.sleep(1)
+                time.sleep(2)
 
             # upsert in batches of 5000 rows
             if row_count%5000 == 0:
@@ -223,3 +230,14 @@ def GEOCLIENT_streetAddress(streetAddress):
         return results
     except:
         return []
+
+def OPENSTREETMAP_streetAddress(streetAddress):
+    url = 'https://nominatim.openstreetmap.org/search'
+    params = {"q":streetAddress,"format":"json","limit":1}
+    r = requests.get(url, params=params)
+    if len(r.json()) == 0 :
+    	return []
+    else:
+    	response = r.json()[0]
+        results = [response['lon'],response['lat']]
+        return results
