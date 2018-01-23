@@ -175,7 +175,7 @@ def geocode_dataset(res_id):
                     current_record['electionDistrict'] = response.get('electionDistrict','')
                     new_records.append(current_record)
 
-                time.sleep(2)
+                time.sleep(randint(500,1500) / 1000)
 
             # upsert in batches of 5000 rows
             if row_count%5000 == 0:
