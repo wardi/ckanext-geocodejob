@@ -219,6 +219,10 @@
         {
           "value": "nyc_geoclient",
           "label": "NYC Geoclient"
+        },
+        {
+          "value": "openstreetmap",
+          "label": "Openstreetmap"
         }
       ]
     },
