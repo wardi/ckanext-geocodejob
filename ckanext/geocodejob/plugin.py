@@ -5,6 +5,9 @@ import time
 
 import ckanapi
 import ckan.plugins as p
+import ckan.plugins.toolkit as toolkit
+from ckanext.geocodejob.model import setup as model_setup
+from ckanext.geocodejob.model import ResourceGeocodeData
 
 try:
     # CKAN 2.7 and later
@@ -29,7 +32,22 @@ GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
 
 
 class GeocodeJobPlugin(p.SingletonPlugin):
+    p.implements(p.IConfigurable)
+    p.implements(p.IConfigurer)
     p.implements(p.IResourceController, inherit=True)
+    p.implements(p.IRoutes, inherit=True)
+
+    # IConfigurer
+
+    def update_config(self, config_):
+        toolkit.add_template_directory(config_, 'templates')
+        toolkit.add_public_directory(config_, 'public')
+        toolkit.add_resource('fanstatic', 'geocode_job')
+
+    # IConfigurable
+
+    def configure(self, config):
+        model_setup()
 
     def after_create(self, context, res_dict):
         maybe_schedule(res_dict)
@@ -37,9 +55,18 @@ class GeocodeJobPlugin(p.SingletonPlugin):
     def after_update(self, context, res_dict):
         maybe_schedule(res_dict)
 
+    # IRoutes
+
+    def before_map(self, m):
+        m.connect(
+            'geocoded_data', '/dataset/{id}/geocoded_data/{resource_id}',
+            controller='ckanext.geocodejob.controller:GeocodejobController',
+            action='geocoded_data', ckan_icon='book')
+        return m
 
 def maybe_schedule(res_dict):
-    if res_dict.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
+    geocode_data_values = ResourceGeocodeData.get_geocode_data_values(res_dict['id'])
+    if geocode_data_values.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
         return
 
     p.toolkit.enqueue_job(geocode_dataset, [res_dict['id']])
@@ -57,14 +84,15 @@ def geocode_dataset(res_id):
     if res_dict['state'] != 'active':
         return
 
+    geocode_data_values = ResourceGeocodeData.get_geocode_data_values(res_dict['id'])
     # don't run again if we've already processed this one
-    if res_dict.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
+    if geocode_data_values.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
         return
 
     # if this takes a long time, don't start another job while this one is going
-    lc.call_action('resource_patch', {
-        'id':res_id,
-        TRIGGER_METADATA_FIELD: TRIGGER_METADATA_STARTED})
+    gecodefield_obj = ResourceGeocodeData.get(resource_id=res_dict['id'],key=TRIGGER_METADATA_FIELD)
+    gecodefield_obj.value = TRIGGER_METADATA_STARTED
+    gecodefield_obj.commit()
 
     ## dummy work here ##
     # get data from the resource to be geocoded
@@ -74,7 +102,7 @@ def geocode_dataset(res_id):
 
     # check if the resource was previously geocoded
     geocoded_res_dict = []
-    geocoded_res_id = res_dict.get(TRIGGER_METADATA_RESOURCE)
+    geocoded_res_id = geocode_data_values.get(TRIGGER_METADATA_RESOURCE)
     if geocoded_res_id:
         try:
             geocoded_res_dict = lc.action.resource_show(id=geocoded_res_id)
@@ -95,11 +123,11 @@ def geocode_dataset(res_id):
 
     # continue if the streetAddress field exists
     if valid_resource:
-        if res_dict.get('geocoder') == 'mapzen' or res_dict.get('geocoder') == 'openstreetmap':
+        if geocode_data_values.get('geocoder') == 'mapzen' or geocode_data_values.get('geocoder') == 'openstreetmap':
             data_schema.append({ 'id' : 'latitude', 'type' : 'text' })
             data_schema.append({ 'id' : 'longitude', 'type' : 'text' })
 
-        elif res_dict.get('geocoder') == 'nyc_geoclient':
+        elif geocode_data_values.get('geocoder') == 'nyc_geoclient':
             data_schema.append({ 'id' : 'latitude', 'type' : 'text' })
             data_schema.append({ 'id' : 'longitude', 'type' : 'text' })
             data_schema.append({ 'id' : 'bbl', 'type' : 'text' })
@@ -133,7 +161,7 @@ def geocode_dataset(res_id):
 
         new_records = []
         row_count = 0
-
+        address_column = geocode_data_values.get('address_column','streetAddress')
         for row in records:
             row_count = row_count+1
             current_record = {}
@@ -143,24 +171,24 @@ def geocode_dataset(res_id):
                 else:
                     current_record[field.get('id')] = row.get(field.get('id'))
 
-            if row.get('streetAddress'):
+            if row.get(address_column):
                 # geocode using the streetAddres
-                if res_dict.get('geocoder') == 'mapzen':
-                    response = MAPZEN_streetAddress(row.get('streetAddress'))
+                if geocode_data_values.get('geocoder') == 'mapzen':
+                    response = MAPZEN_streetAddress(row.get(address_column))
                     if len(response) == 2:
                         current_record['latitude'] = response[1]
                         current_record['longitude'] = response[0]
                         new_records.append(current_record)
 
-                if res_dict.get('geocoder') == 'openstreetmap':
-                    response = OPENSTREETMAP_streetAddress(row.get('streetAddress'))
+                if geocode_data_values.get('geocoder') == 'openstreetmap':
+                    response = OPENSTREETMAP_streetAddress(row.get(address_column))
                     if len(response) == 2:
                         current_record['latitude'] = response[1]
                         current_record['longitude'] = response[0]
                         new_records.append(current_record)
 
-                if res_dict.get('geocoder') == 'nyc_geoclient':
-                    response = GEOCLIENT_streetAddress(row.get('streetAddress'))
+                if geocode_data_values.get('geocoder') == 'nyc_geoclient':
+                    response = GEOCLIENT_streetAddress(row.get(address_column))
 
                     current_record['latitude'] = response.get('latitude','')
                     current_record['longitude'] = response.get('longitude','')
@@ -197,12 +225,14 @@ def geocode_dataset(res_id):
             }
             lc.call_action('datastore_upsert', datastore_dict)
 
-    # update source resource setting the job to done
-    lc.call_action('resource_patch', {
-        'id': res_id,
-        TRIGGER_METADATA_FIELD: TRIGGER_METADATA_DONE,
-        TRIGGER_METADATA_RESOURCE: resource_id
-    })
+    # update geocodefield geocode_data setting to done
+    gecodefield_obj = ResourceGeocodeData.get(resource_id=res_dict['id'],key=TRIGGER_METADATA_FIELD)
+    gecodefield_obj.value = TRIGGER_METADATA_DONE
+    gecodefield_obj.commit()
+    # update geocodefield geocoded_resource_id setting to done
+    gecodefield_obj = ResourceGeocodeData.get(resource_id=res_dict['id'],key=TRIGGER_METADATA_RESOURCE)
+    gecodefield_obj.value = resource_id
+    gecodefield_obj.commit()
 
     # update geocoded resource with time finished
     lc.call_action('resource_patch', {
@@ -242,3 +272,4 @@ def OPENSTREETMAP_streetAddress(streetAddress):
     	response = r.json()[0]
         results = [response['lon'],response['lat']]
         return results
+
