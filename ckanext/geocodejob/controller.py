@@ -94,12 +94,12 @@ def get_geocoded_fields():
               "text": ""
             },
             {
-              "value": "geocode",
-              "text": "Geocode"
+              "value": "start",
+              "text": "Start"
             },
             {
-              "value": "started",
-              "text": "Started"
+              "value": "inprogress",
+              "text": "In Progress"
             },
             {
               "value": "done",
@@ -115,10 +115,6 @@ def get_geocoded_fields():
             {
               "value": "",
               "text": ""
-            },
-            {
-              "value": "mapzen",
-              "text": "Mapzen"
             },
             {
               "value": "nyc_geoclient",

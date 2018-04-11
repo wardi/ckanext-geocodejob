@@ -18,14 +18,12 @@ except ImportError:
 
 
 TRIGGER_METADATA_FIELD = 'geocode_data'  # XXX change me to the new metadata field
-TRIGGER_METADATA_VALUE = 'geocode'
-TRIGGER_METADATA_STARTED = 'started'
+TRIGGER_METADATA_VALUE = 'start'
+TRIGGER_METADATA_STARTED = 'inprogress'
 TRIGGER_METADATA_DONE = 'done'
 TRIGGER_METADATA_RESOURCE = 'geocoded_resource_id'
 
 GEOCODED_RESOURCE_NAME_POSTFIX = ' (Geocoded Data)'
-
-MAPZEN_API_KEY = config.get('ckanext.geocodejob.mapzen_api_key', '')
 
 GEOCLIENT_API_ID = config.get('ckanext.geocodejob.geoclient_api_id', '')
 GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
@@ -121,7 +119,7 @@ def geocode_dataset(res_id):
 
     # continue if the streetAddress field exists
     if valid_resource:
-        if geocode_data_values.get('geocoder') == 'mapzen' or geocode_data_values.get('geocoder') == 'openstreetmap':
+        if geocode_data_values.get('geocoder') == 'openstreetmap':
             data_schema.append({ 'id' : 'latitude', 'type' : 'text' })
             data_schema.append({ 'id' : 'longitude', 'type' : 'text' })
 
@@ -171,13 +169,6 @@ def geocode_dataset(res_id):
 
             if row.get(address_column):
                 # geocode using the streetAddres
-                if geocode_data_values.get('geocoder') == 'mapzen':
-                    response = MAPZEN_streetAddress(row.get(address_column))
-                    if len(response) == 2:
-                        current_record['latitude'] = response[1]
-                        current_record['longitude'] = response[0]
-                        new_records.append(current_record)
-
                 if geocode_data_values.get('geocoder') == 'openstreetmap':
                     response = OPENSTREETMAP_streetAddress(row.get(address_column))
                     if len(response) == 2:
@@ -237,17 +228,6 @@ def geocode_dataset(res_id):
         'id': resource_id,
         'description': 'completed {0}'.format(datetime.utcnow())
     })
-
-
-def MAPZEN_streetAddress(streetAddress):
-    try:
-        url = 'https://search.mapzen.com/v1/search'
-        params = {'api_key': MAPZEN_API_KEY, 'text': streetAddress, 'boundary.country': 'USA'}
-        r = requests.get(url, params=params)
-        results = r.json()['features'][0]['geometry']['coordinates']
-        return results
-    except:
-        return []
 
 
 def GEOCLIENT_streetAddress(streetAddress):
