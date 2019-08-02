@@ -10,6 +10,7 @@ setup(
     author_email='',
     url='',
     namespace_packages=['ckanext'],
+    install_requires=['ckanapi'],
     packages=['ckanext.geocodejob'],
     zip_safe=False,
     entry_points = """

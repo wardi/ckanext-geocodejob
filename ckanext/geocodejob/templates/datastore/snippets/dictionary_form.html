@@ -1,0 +1,17 @@
+{% ckan_extends %}
+
+{% block form_fields %}
+  {{ super() }}
+  <div class="ddict-geocode collapse">
+    {{ form.select('info__' ~ position ~ '__geocode',
+      label=_('Geocode'), options=[
+      {'name': '', 'value': ''},
+      {'name': 'address1', 'value': 'IN: Address Line 1'},
+      {'name': 'city', 'value': 'IN: City'},
+      {'name': 'postal', 'value': 'IN: Zip Code'},
+      {'name': 'city', 'value': 'IN: City'},
+      {'name': 'latitude', 'value': 'OUT: Latitude'},
+      {'name': 'longitude', 'value': 'OUT: Longitude'},
+      ], selected=field.get('info', {}).get('geocode', '')) }}
+  </div>
+{% endblock %}

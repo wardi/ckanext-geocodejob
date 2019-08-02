@@ -1,0 +1,7 @@
+{% ckan_extends %}
+
+{% block collapse_buttons %}
+  {{ super() }}
+  <button class="btn" type="button" data-toggle="collapse"
+    data-target=".ddict-geocode">{{ _("Geocode") }}</button>
+{% endblock %}
