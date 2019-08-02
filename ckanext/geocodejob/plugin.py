@@ -8,6 +8,7 @@ import ckan.plugins as p
 import ckan.plugins.toolkit as toolkit
 from ckanext.geocodejob.model import setup as model_setup
 from ckanext.geocodejob.model import ResourceGeocodeData
+from ckanext.geocodejob import logic, auth
 
 try:
     # CKAN 2.7 and later
@@ -34,6 +35,8 @@ class GeocodeJobPlugin(p.SingletonPlugin):
     p.implements(p.IConfigurer)
     p.implements(p.IResourceController, inherit=True)
     p.implements(p.IRoutes, inherit=True)
+    p.implements(p.IActions)
+    p.implements(p.IAuthFunctions)
 
     # IConfigurer
 
@@ -59,6 +62,23 @@ class GeocodeJobPlugin(p.SingletonPlugin):
             controller='ckanext.geocodejob.controller:GeocodejobController',
             action='geocoded_data', ckan_icon='book')
         return m
+
+    # IActions
+
+    def get_actions(self):
+        return {
+            'geocodejob_create_tables': logic.geocodejob_create_tables,
+            'geocodejob_drop_tables': logic.geocodejob_drop_tables,
+        }
+
+    # IAuthFunctions
+
+    def get_auth_functions(self):
+        return {
+            'geocodejob_create_tables': auth.geocodejob_create_tables,
+            'geocodejob_drop_tables': auth.geocodejob_drop_tables,
+        }
+
 
 def maybe_schedule(res_dict):
     geocode_data_values = ResourceGeocodeData.get_geocode_data_values(res_dict['id'])
