@@ -69,6 +69,8 @@ class GeocodeJobPlugin(p.SingletonPlugin):
         return {
             'geocodejob_create_tables': logic.geocodejob_create_tables,
             'geocodejob_drop_tables': logic.geocodejob_drop_tables,
+            'datastore_create': logic.datastore_create,
+            'datastore_delete': logic.datastore_delete,
         }
 
     # IAuthFunctions
