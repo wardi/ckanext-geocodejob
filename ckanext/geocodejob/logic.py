@@ -25,6 +25,7 @@ def datastore_create(up_func, context, data_dict):
     Intercept geocode settings in data dictionary fields
     to create/reset trigger geocode trigger function for this resource
     '''
+    up_dict = dict(data_dict)
     geocode_fields = [
         (field['id'], field['info']['geocode'])
         for field in data_dict.get('fields', [])
@@ -36,10 +37,12 @@ def datastore_create(up_func, context, data_dict):
             data_dict['resource_id'],
             geocode_fields
         )
+        up_dict['triggers'] = data_dict.get('triggers', []) + [
+            {'function': 'geocode_trigger_' + data_dict['resource_id']}]
     else:
         _delete_geocode_function(context, data_dict['resource_id'])
 
-    rval = up_func(context, data_dict)
+    rval = up_func(context, up_dict)
     return rval
 
 
@@ -88,34 +91,39 @@ def _create_geocode_function(context, resource_id, geocode_fields):
         for name in lat_keys + lng_keys
     )
     assign_lat_lng = ';'.join(
-        "NEW.{name} = record.latitude".format(name=identifier(name))
+        "NEW.{name} = lat".format(name=identifier(name))
         for name in lat_keys) + ';' + ';'.join(
-        "NEW.{name} = record.longitude".format(name=identifier(name))
+        "NEW.{name} = lng".format(name=identifier(name))
         for name in lng_keys
     )
-    full_address = "|| ' ,' ||".join(
+    full_address = "|| ', ' ||".join(
         "NEW.{name}::text".format(name=identifier(address_fields[key]))
         for key in ['address', 'city', 'postal'] if key in address_fields
     )
 
     lng_keys = (fid for fid, geo in geocode_fields if geo == 'lng')
-    get_action('datastore_function_delete')(
+    get_action('datastore_function_create')(
         dict(context, ignore_auth=True),
         {
-            'name': 'geocode_trigger_' + resource_id,
+            'name': u'geocode_trigger_' + resource_id,
             'or_replace': True,
-            'rettype': 'trigger',
-            'definition': '''
+            'rettype': u'trigger',
+            'definition': u'''
                 DECLARE
                     full_address text := {full_address};
-                    match record := NULL;
+                    lat numeric;
+                    lng numeric;
                 BEGIN
                     IF {lat_lng_unset} THEN
-                        match := select latitude, longitude from geocode_cache
-                            where address = full_address limit 1;
-                        IF match IS NULL THEN
-                            insert into geocode_request values (full_address));
+                        IF NOT exists(select latitude, longitude
+                                from geocode_cache
+                                where address = full_address) THEN
+                            insert into geocode_request values (full_address);
                         ELSE
+                            select latitude, longitude
+                            into lat, lng
+                            from geocode_cache
+                                where address = full_address limit 1;
                             {assign_lat_lng};
                         END IF;
                     END IF;
