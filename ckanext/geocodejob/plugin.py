@@ -6,8 +6,6 @@ import time
 import ckanapi
 import ckan.plugins as p
 import ckan.plugins.toolkit as toolkit
-from ckanext.geocodejob.model import setup as model_setup
-from ckanext.geocodejob.model import ResourceGeocodeData
 from ckanext.geocodejob import logic, auth
 
 try:
@@ -31,10 +29,7 @@ GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
 
 
 class GeocodeJobPlugin(p.SingletonPlugin):
-    p.implements(p.IConfigurable)
     p.implements(p.IConfigurer)
-    p.implements(p.IResourceController, inherit=True)
-    p.implements(p.IRoutes, inherit=True)
     p.implements(p.IActions)
     p.implements(p.IAuthFunctions)
 
@@ -42,26 +37,6 @@ class GeocodeJobPlugin(p.SingletonPlugin):
 
     def update_config(self, config_):
         toolkit.add_template_directory(config_, 'templates')
-
-    # IConfigurable
-
-    def configure(self, config):
-        model_setup()
-
-    def after_create(self, context, res_dict):
-        maybe_schedule(res_dict)
-
-    def after_update(self, context, res_dict):
-        maybe_schedule(res_dict)
-
-    # IRoutes
-
-    def before_map(self, m):
-        m.connect(
-            'geocoded_data', '/dataset/{id}/geocoded_data/{resource_id}',
-            controller='ckanext.geocodejob.controller:GeocodejobController',
-            action='geocoded_data', ckan_icon='book')
-        return m
 
     # IActions
 
