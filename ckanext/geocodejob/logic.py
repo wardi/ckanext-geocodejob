@@ -87,7 +87,7 @@ def _create_geocode_function(context, resource_id, geocode_fields):
             address_fields[geo] = fid
 
     lat_lng_unset = ' AND '.join(
-        "(NEW.{name} = '') IS NOT FALSE".format(name=identifier(name))
+        "(NEW.{name}::text = '') IS NOT FALSE".format(name=identifier(name))
         for name in lat_keys + lng_keys
     )
     assign_lat_lng = ';'.join(
@@ -118,7 +118,11 @@ def _create_geocode_function(context, resource_id, geocode_fields):
                         IF NOT exists(select latitude, longitude
                                 from geocode_cache
                                 where address = full_address) THEN
-                            insert into geocode_request values (full_address);
+                            IF NOT exists(select address
+                                    from geocode_request
+                                    where address = full_address) THEN
+                                insert into geocode_request values (full_address);
+                            END IF;
                         ELSE
                             select latitude, longitude
                             into lat, lng
