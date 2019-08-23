@@ -50,3 +50,10 @@ class GeocodeCache(Base):
     latitude = Column(Numeric, nullable=True)
     longitude = Column(Numeric, nullable=True)
     timestamp = Column(DateTime, server_default=utcnow(), nullable=False)
+
+
+def any_requested_rows():
+    '''
+    return True when the geocode_request table is not empty
+    '''
+    return bool(Session.query(GeocodeRequested).first())

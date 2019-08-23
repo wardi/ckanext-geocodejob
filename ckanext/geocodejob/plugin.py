@@ -6,7 +6,9 @@ import time
 import ckanapi
 import ckan.plugins as p
 import ckan.plugins.toolkit as toolkit
+
 from ckanext.geocodejob import logic, auth
+from ckanext.geocodejob.model.datastore import any_requested_rows
 
 try:
     # CKAN 2.7 and later
@@ -30,6 +32,7 @@ GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
 
 class GeocodeJobPlugin(p.SingletonPlugin):
     p.implements(p.IConfigurer)
+    p.implements(p.IResourceController, inherit=True)
     p.implements(p.IActions)
     p.implements(p.IAuthFunctions)
 
@@ -37,6 +40,14 @@ class GeocodeJobPlugin(p.SingletonPlugin):
 
     def update_config(self, config_):
         toolkit.add_template_directory(config_, 'templates')
+
+    # IResourceController
+
+    def after_create(self, context, res_dict):
+        maybe_schedule(res_dict)
+
+    def after_update(self, context, res_dict):
+        maybe_schedule(res_dict)
 
     # IActions
 
@@ -58,17 +69,31 @@ class GeocodeJobPlugin(p.SingletonPlugin):
 
 
 def maybe_schedule(res_dict):
-    geocode_data_values = ResourceGeocodeData.get_geocode_data_values(res_dict['id'])
-    if geocode_data_values.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
+    if not res_dict.get('datastore_active', False):
         return
 
-    p.toolkit.enqueue_job(geocode_dataset, [res_dict['id']])
+    if not any_requested_rows():
+        return
+
+    lc = ckanapi.LocalCKAN()  # running as site user
+    ds = lc.action.datastore_search(resource_id=res_dict['id'], rows=0)
+
+    geocode_fields = [
+        (field['id'], field['info']['geocode'])
+        for field in data_dict.get('fields', [])
+        if field.get('info', {}).get('geocode')
+    ]
+    if not any(geo == 'lat' or geo == 'lng' for f, geo in geocode_fields):
+        return
+
+    p.toolkit.enqueue_job(geocode_resource, [res_dict['id']])
 
 
-def geocode_dataset(res_id):
+def geocode_resource(res_id):
     """
     Job that will be run by a worker process at a later time
     """
+    assert 0
     lc = ckanapi.LocalCKAN()  # running as site user
     res_dict = lc.action.resource_show(id=res_id)
     pkg_dict = lc.action.package_show(id=res_dict.get('package_id'))
