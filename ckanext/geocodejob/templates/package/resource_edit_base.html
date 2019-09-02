@@ -1,0 +1,9 @@
+{% ckan_extends %}
+
+{% block inner_primary_nav %}
+  {{ super() }}
+  {% if res.datastore_active %}
+    {{ h.build_nav_icon('geocoded_data', _('Geocoder'), id=pkg.name, resource_id=res.id) }}
+  {% endif %}
+{% endblock %}
+

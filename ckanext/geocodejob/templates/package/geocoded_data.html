@@ -5,28 +5,26 @@
 {% block subtitle %}{{ h.dataset_display_name(pkg) }} - {{ h.resource_display_name(res) }}{% endblock %}
 
 {% block primary_content_inner %}
+  {% if h.geocodejob_fields_present(res.id) %}
+    <p>{{ _( "Geocoder fields selected." ) }}</p>
+    {% set action = h.url_for(
+      controller='ckanext.geocodejob.controller:GeocodeJobController',
+      action='geocoded_data', id=pkg.name, resource_id=res.id) %}
 
-  {% set action = h.url_for(
-    controller='ckanext.geocodejob.controller:GeocodejobController',
-    action='geocoded_data', id=pkg.name, resource_id=res.id) %}
-
-  <form method="post" action="{{ action }}" class="dataset-form dataset-resource-form form-horizontal">
-    {% block geocodeddata_form %}
-      {% for f in fields %}
-        {%- set selected_value=geocode_data_values[f.field_name] -%}
-        {% if f.preset == 'select' and f.field_name != 'address_column' %}
-          {{ form.select(f.field_name, label=_(f.label), options=f.choices, selected=selected_value, error='',classes=['control-full']) }}
-        {% elif f.field_name == 'address_column' %}
-          {{ form.select(f.field_name, label=_(f.label), options=address_column_options, selected=selected_value, error='',classes=['control-full']) }}
-        {% else %}
-          {{ form.input(f.field_name, label=_(f.label), value=selected_value,placeholder=f.form_placeholder, error='',classes=['control-full']) }}
-        {% endif %}
-      {% endfor %}
-
-    {% endblock %}
-
+    <form method="post" action="{{ action }}" class="dataset-form dataset-resource-form form-horizontal">
+      <button class="btn btn-primary" name="save" type="submit">
+        <i class="fa fa-book"></i> {{ _('Geocode Existing Data') }}
+      </button>
+    </form>
+  {% else %}
+    <p>{{ _( "Geocoder fields not selected. Use the Data Dictionary tab to select IN and OUT fields for this resource, then click Geocode Existing Data below." ) }}</p>
     <button class="btn btn-primary" name="save" type="submit">
-      <i class="fa fa-book"></i> {{ _('Save') }}
+      <i disabled class="fa fa-book"></i> {{ _('Geocode Existing Data') }}
     </button>
-  </form>
+  {% endif %}
+  {% if h.geocodejob_any_requested() %}
+    <p>{{ _("Background Job: Busy") }}</p>
+  {% else %}
+    <p>{{ _("Background Job: Idle") }}</p>
+  {% endif %}
 {% endblock %}

@@ -39,8 +39,10 @@ GEOCLIENT_BATCH_SIZE = 150
 class GeocodeJobPlugin(p.SingletonPlugin):
     p.implements(p.IConfigurer)
     p.implements(p.IResourceController, inherit=True)
+    p.implements(p.IRoutes, inherit=True)
     p.implements(p.IActions)
     p.implements(p.IAuthFunctions)
+    p.implements(p.ITemplateHelpers, inherit=True)
 
     # IConfigurer
 
@@ -54,6 +56,15 @@ class GeocodeJobPlugin(p.SingletonPlugin):
 
     def after_update(self, context, res_dict):
         maybe_schedule(res_dict)
+
+    # IRoutes
+
+    def before_map(self, m):
+        m.connect(
+            'geocoded_data', '/dataset/{id}/geocoded_data/{resource_id}',
+            controller='ckanext.geocodejob.controller:GeocodeJobController',
+            action='geocoded_data', ckan_icon='wrench')
+        return m
 
     # IActions
 
@@ -73,6 +84,26 @@ class GeocodeJobPlugin(p.SingletonPlugin):
             'geocodejob_drop_tables': auth.geocodejob_drop_tables,
         }
 
+    # ITemplateHelpers
+
+    def get_helpers(self):
+        return {
+            'geocodejob_fields_present': fields_present,
+            'geocodejob_any_requested': any_requested_rows,
+        }
+
+
+def fields_present(resource_id):
+    lc = ckanapi.LocalCKAN()  # running as site user
+    ds = lc.action.datastore_search(resource_id=resource_id, limit=0)
+
+    geocode_fields = [
+        (field['id'], field['info']['geocode'])
+        for field in ds.get('fields', [])
+        if field.get('info', {}).get('geocode')
+    ]
+    return any(geo == 'lat' or geo == 'lng' for f, geo in geocode_fields)
+
 
 def maybe_schedule(res_dict):
     if not res_dict.get('datastore_active', False):
@@ -81,15 +112,7 @@ def maybe_schedule(res_dict):
     if not any_requested_rows():
         return
 
-    lc = ckanapi.LocalCKAN()  # running as site user
-    ds = lc.action.datastore_search(resource_id=res_dict['id'], limit=0)
-
-    geocode_fields = [
-        (field['id'], field['info']['geocode'])
-        for field in ds.get('fields', [])
-        if field.get('info', {}).get('geocode')
-    ]
-    if not any(geo == 'lat' or geo == 'lng' for f, geo in geocode_fields):
+    if not fields_present(res_dict['id']):
         return
 
     p.toolkit.enqueue_job(geocode_resource, [res_dict['id']])
