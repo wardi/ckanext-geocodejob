@@ -2,6 +2,7 @@ from datetime import datetime
 from random import randint
 import requests
 import time
+import simplejson as json
 
 import ckanapi
 import ckan.plugins as p
@@ -9,7 +10,8 @@ import ckan.plugins.toolkit as toolkit
 
 from ckanext.geocodejob import logic, auth
 from ckanext.geocodejob.model.datastore import (
-    any_requested_rows, requested_remove_batch, Session)
+    any_requested_rows, requested_remove_batch, write_session,
+    insert_cached_rows)
 
 try:
     # CKAN 2.7 and later
@@ -29,7 +31,7 @@ GEOCODED_RESOURCE_NAME_POSTFIX = ' (Geocoded Data)'
 
 GEOCLIENT_API_ID = config.get('ckanext.geocodejob.geoclient_api_id', '')
 GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
-GEOCLIENT_SOURCE_COUNTRY = config.ge('ckanext.geocodejob.geoclient_source_country', 'USA')
+GEOCLIENT_SOURCE_COUNTRY = config.get('ckanext.geocodejob.geoclient_source_country', 'USA')
 # from http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer?f=pjson
 GEOCLIENT_BATCH_SIZE = 150
 
@@ -80,11 +82,11 @@ def maybe_schedule(res_dict):
         return
 
     lc = ckanapi.LocalCKAN()  # running as site user
-    ds = lc.action.datastore_search(resource_id=res_dict['id'], rows=0)
+    ds = lc.action.datastore_search(resource_id=res_dict['id'], limit=0)
 
     geocode_fields = [
         (field['id'], field['info']['geocode'])
-        for field in data_dict.get('fields', [])
+        for field in ds.get('fields', [])
         if field.get('info', {}).get('geocode')
     ]
     if not any(geo == 'lat' or geo == 'lng' for f, geo in geocode_fields):
@@ -99,7 +101,11 @@ def esri_token():
     """
     resp = requests.get(
         'https://www.arcgis.com/sharing/oauth2/token',
-        {'client_id': GEOCLIENT_API_ID, 'client_secret': GEOCLIENT_API_KEY},
+        {
+            'client_id': GEOCLIENT_API_ID, 
+            'client_secret': GEOCLIENT_API_KEY,
+            'grant_type': 'client_credentials',
+        },
     )
     return resp.json()['access_token']
 
@@ -109,11 +115,11 @@ def geocode_resource(res_id):
     Job that will be run by a worker process at a later time
     """
     token = None
-    session = Session()
+    session = write_session()
 
     while True:
-        with session.begin():
-            batch = requested_remove_batch(session)
+        try:
+            batch = requested_remove_batch(session, GEOCLIENT_BATCH_SIZE)
             if not batch:
                 break
             if not token:
@@ -127,15 +133,15 @@ def geocode_resource(res_id):
             resp = requests.post(
                 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/geocodeAddresses',
                 params={
-                    'f':'json',
+                    'f':'pjson',
                     'token': token,
-                    'addresses': addresses,
+                    'addresses': json.dumps(addresses),
                     'sourceCountry': GEOCLIENT_SOURCE_COUNTRY,
                 }
             )
             # responses come in arbitrary order
             lng_lat = {
-                r['ResultID']: (r['X'], r['Y'])
+                r['attributes']['ResultID']: (r['location']['x'], r['location']['y'])
                 for r in resp.json()['locations']
             }
             insert_cached_rows(
@@ -145,6 +151,10 @@ def geocode_resource(res_id):
                     for i, addr in enumerate(batch)
                 ]
             )
+            session.commit()
+        except:
+            session.rollback()
+            raise
 
     lc = ckanapi.LocalCKAN()  # running as site user
     # update missing values from cache

@@ -18,7 +18,6 @@ from ckanext.datastore.backend.postgres import (
 )
 
 Base = declarative_base()
-Session = sessionmaker()
 metadata = Base.metadata
 
 
@@ -56,7 +55,16 @@ def any_requested_rows():
     '''
     return True when the geocode_request table is not empty
     '''
-    return bool(Session.query(GeocodeRequested).first())
+    Session = sessionmaker(bind=get_write_engine())
+    return bool(Session().query(GeocodeRequested).first())
+
+
+def write_session():
+    '''
+    return a new session for the datastore write user
+    '''
+    Session = sessionmaker(bind=get_write_engine())
+    return Session()
 
 
 def requested_remove_batch(session, num):
@@ -66,7 +74,8 @@ def requested_remove_batch(session, num):
     batch = session.query(GeocodeRequested).limit(num)
     addresses = [b.address for b in batch]
     session.query(GeocodeRequested).filter(
-        GeocodeRequested.address.in_(addresses)).delete()
+        GeocodeRequested.address.in_(addresses)).delete(
+        synchronize_session=False)
     return addresses
 
 

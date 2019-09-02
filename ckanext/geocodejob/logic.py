@@ -52,10 +52,11 @@ def datastore_delete(up_func, context, data_dict):
     When completely removing datastore table make sure to remove
     any geocode function previously created
     '''
+    resource_id = data_dict.get('resource_id')
     rval = up_func(context, data_dict)
 
-    if 'filters' not in data_dict:
-        _delete_geocode_function(context, data_dict['resource_id'])
+    if 'filters' not in data_dict and resource_id:
+        _delete_geocode_function(context, resource_id)
 
     return rval
 
