@@ -8,7 +8,8 @@ import ckan.plugins as p
 import ckan.plugins.toolkit as toolkit
 
 from ckanext.geocodejob import logic, auth
-from ckanext.geocodejob.model.datastore import any_requested_rows
+from ckanext.geocodejob.model.datastore import (
+    any_requested_rows, requested_remove_batch, Session)
 
 try:
     # CKAN 2.7 and later
@@ -28,6 +29,9 @@ GEOCODED_RESOURCE_NAME_POSTFIX = ' (Geocoded Data)'
 
 GEOCLIENT_API_ID = config.get('ckanext.geocodejob.geoclient_api_id', '')
 GEOCLIENT_API_KEY = config.get('ckanext.geocodejob.geoclient_api_key', '')
+GEOCLIENT_SOURCE_COUNTRY = config.ge('ckanext.geocodejob.geoclient_source_country', 'USA')
+# from http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer?f=pjson
+GEOCLIENT_BATCH_SIZE = 150
 
 
 class GeocodeJobPlugin(p.SingletonPlugin):
@@ -89,167 +93,62 @@ def maybe_schedule(res_dict):
     p.toolkit.enqueue_job(geocode_resource, [res_dict['id']])
 
 
+def esri_token():
+    """
+    generate new (time limited) token for esri api calls
+    """
+    resp = requests.get(
+        'https://www.arcgis.com/sharing/oauth2/token',
+        {'client_id': GEOCLIENT_API_ID, 'client_secret': GEOCLIENT_API_KEY},
+    )
+    return resp.json()['access_token']
+
+
 def geocode_resource(res_id):
     """
     Job that will be run by a worker process at a later time
     """
-    assert 0
-    lc = ckanapi.LocalCKAN()  # running as site user
-    res_dict = lc.action.resource_show(id=res_id)
-    pkg_dict = lc.action.package_show(id=res_dict.get('package_id'))
+    token = None
+    session = Session()
 
-    # wait for the dataset to leave draft
-    if res_dict['state'] != 'active':
-        return
-
-    geocode_data_values = ResourceGeocodeData.get_geocode_data_values(res_dict['id'])
-    # don't run again if we've already processed this one
-    if geocode_data_values.get(TRIGGER_METADATA_FIELD) != TRIGGER_METADATA_VALUE:
-        return
-
-    # if this takes a long time, don't start another job while this one is going
-    gecodefield_obj = ResourceGeocodeData.get(resource_id=res_dict['id'],key=TRIGGER_METADATA_FIELD)
-    gecodefield_obj.value = TRIGGER_METADATA_STARTED
-    gecodefield_obj.commit()
-
-    ## dummy work here ##
-    # get data from the resource to be geocoded
-    search_result = lc.call_action('datastore_search', {'id':res_id, 'limit':50000})
-    fields = search_result.get('fields')
-    records = search_result.get('records')
-
-    # check if the resource was previously geocoded
-    geocoded_res_dict = []
-    geocoded_res_id = geocode_data_values.get(TRIGGER_METADATA_RESOURCE)
-    if geocoded_res_id:
-        try:
-            geocoded_res_dict = lc.action.resource_show(id=geocoded_res_id)
-        except:
-            pass
-
-    # set the field names and types
-    data_schema = []
-    valid_resource = False
-    for field in fields:
-        if field.get('id') == '_id':
-            data_schema.append({'id':'ckan_id', 'type':'integer'})
-        elif field.get('id') == 'streetAddress':
-            data_schema.append(field)
-            valid_resource = True
-        else:
-            data_schema.append(field)
-
-    # continue if the streetAddress field exists
-    if valid_resource:
-        if geocode_data_values.get('geocoder') == 'openstreetmap':
-            data_schema.append({ 'id' : 'latitude', 'type' : 'text' })
-            data_schema.append({ 'id' : 'longitude', 'type' : 'text' })
-
-        elif geocode_data_values.get('geocoder') == 'nyc_geoclient':
-            data_schema.append({ 'id' : 'latitude', 'type' : 'text' })
-            data_schema.append({ 'id' : 'longitude', 'type' : 'text' })
-            data_schema.append({ 'id' : 'bbl', 'type' : 'text' })
-            data_schema.append({ 'id' : 'bblBoroughCode', 'type' : 'text' })
-            data_schema.append({ 'id' : 'bblTaxBlock', 'type' : 'text' })
-            data_schema.append({ 'id' : 'bblTaxLot', 'type' : 'text' })
-            data_schema.append({ 'id' : 'bin', 'type' : 'text' })
-            data_schema.append({ 'id' : 'neighborhood', 'type' : 'text' })
-            data_schema.append({ 'id' : 'cityCouncilDistrict', 'type' : 'text' })
-            data_schema.append({ 'id' : 'communityDistrict', 'type' : 'text' })
-            data_schema.append({ 'id' : 'assemblyDistrict', 'type' : 'text' })
-            data_schema.append({ 'id' : 'electionDistrict', 'type' : 'text' })
-
-        datastore_dict = {
-            'fields': data_schema,
-            'primary_key': ['ckan_id'],
-            'format': 'CSV'
-        }
-
-        if geocoded_res_dict:
-            datastore_dict['resource_id'] = geocoded_res_id
-        else:
-            datastore_dict['resource'] = {
-                'package_id': pkg_dict.get('id'),
-                'name': res_dict.get('name')+GEOCODED_RESOURCE_NAME_POSTFIX,
-                'description': 'completed {0}'.format(datetime.utcnow())
+    while True:
+        with session.begin():
+            batch = requested_remove_batch(session)
+            if not batch:
+                break
+            if not token:
+                token = esri_token()
+            addresses = {
+                'records': [
+                    {'attributes': {'OBJECTID': i, 'SingleLine': addr}}
+                    for i, addr in enumerate(batch)
+                ]
             }
-
-        create_result = lc.call_action('datastore_create', datastore_dict)
-        resource_id = create_result.get('resource_id')
-
-        new_records = []
-        row_count = 0
-        address_column = geocode_data_values.get('address_column','streetAddress')
-        for row in records:
-            row_count = row_count+1
-            current_record = {}
-            for field in fields:
-                if field.get('id') == '_id':
-                    current_record['ckan_id'] = row.get('_id')
-                else:
-                    current_record[field.get('id')] = row.get(field.get('id'))
-
-            if row.get(address_column):
-                # geocode using the streetAddres
-                if geocode_data_values.get('geocoder') == 'openstreetmap':
-                    response = OPENSTREETMAP_streetAddress(row.get(address_column))
-                    if len(response) == 2:
-                        current_record['latitude'] = response[1]
-                        current_record['longitude'] = response[0]
-                        new_records.append(current_record)
-
-                if geocode_data_values.get('geocoder') == 'nyc_geoclient':
-                    response = GEOCLIENT_streetAddress(row.get(address_column))
-
-                    current_record['latitude'] = response.get('latitude','')
-                    current_record['longitude'] = response.get('longitude','')
-                    current_record['bbl'] = response.get('bbl','')
-                    current_record['bblBoroughCode'] = response.get('bblBoroughCode','')
-                    current_record['bblTaxBlock'] = response.get('bblTaxBlock','')
-                    current_record['bblTaxLot'] = response.get('bblTaxLot','')
-                    current_record['bin'] = response.get('buildingIdentificationNumber','')
-                    current_record['neighborhood'] = response.get('ntaName','')
-                    current_record['cityCouncilDistrict'] = response.get('cityCouncilDistrict','')
-                    current_record['communityDistrict'] = response.get('communityDistrict','')
-                    current_record['assemblyDistrict'] = response.get('assemblyDistrict','')
-                    current_record['electionDistrict'] = response.get('electionDistrict','')
-                    new_records.append(current_record)
-
-                time.sleep(randint(500,1500) / 1000)
-
-            # upsert in batches of 5000 rows
-            if row_count%5000 == 0:
-                datastore_dict = {
-                    'resource_id': resource_id,
-                    'records': new_records,
-                    'method': 'upsert'
+            resp = requests.post(
+                'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/geocodeAddresses',
+                params={
+                    'f':'json',
+                    'token': token,
+                    'addresses': addresses,
+                    'sourceCountry': GEOCLIENT_SOURCE_COUNTRY,
                 }
-                lc.call_action('datastore_upsert', datastore_dict)
-                new_records = []
-
-        # upsert any remaining rows
-        if new_records:
-            datastore_dict = {
-                'resource_id': resource_id,
-                'records': new_records,
-                'method': 'upsert'
+            )
+            # responses come in arbitrary order
+            lng_lat = {
+                r['ResultID']: (r['X'], r['Y'])
+                for r in resp.json()['locations']
             }
-            lc.call_action('datastore_upsert', datastore_dict)
+            insert_cached_rows(
+                session,
+                [
+                    (addr, ) + lng_lat.get(i, (None, None))
+                    for i, addr in enumerate(batch)
+                ]
+            )
 
-    # update geocodefield geocode_data setting to done
-    gecodefield_obj = ResourceGeocodeData.get(resource_id=res_dict['id'],key=TRIGGER_METADATA_FIELD)
-    gecodefield_obj.value = TRIGGER_METADATA_DONE
-    gecodefield_obj.commit()
-    # update geocodefield geocoded_resource_id setting to done
-    gecodefield_obj = ResourceGeocodeData.get(resource_id=res_dict['id'],key=TRIGGER_METADATA_RESOURCE)
-    gecodefield_obj.value = resource_id
-    gecodefield_obj.commit()
-
-    # update geocoded resource with time finished
-    lc.call_action('resource_patch', {
-        'id': resource_id,
-        'description': 'completed {0}'.format(datetime.utcnow())
-    })
+    lc = ckanapi.LocalCKAN()  # running as site user
+    # update missing values from cache
+    res_dict = lc.action.datastore_run_triggers(resource_id=res_id)
 
 
 def GEOCLIENT_streetAddress(streetAddress):

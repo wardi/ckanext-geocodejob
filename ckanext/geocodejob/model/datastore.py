@@ -57,3 +57,27 @@ def any_requested_rows():
     return True when the geocode_request table is not empty
     '''
     return bool(Session.query(GeocodeRequested).first())
+
+
+def requested_remove_batch(session, num):
+    '''
+    Return and remove num rows from geocode_request
+    '''
+    batch = session.query(GeocodeRequested).limit(num)
+    addresses = [b.address for b in batch]
+    session.query(GeocodeRequested).filter(
+        GeocodeRequested.address.in_(addresses)).delete()
+    return addresses
+
+
+def insert_cached_rows(session, rows):
+    '''
+    Add new rows to geocode_cache
+    '''
+    session.add_all(
+        [
+            GeocodeCache(address=a, longitude=x, latitude=y)
+            for (a, x, y) in rows
+        ]
+    )
+    session.flush()
